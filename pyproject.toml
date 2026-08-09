@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kilowattchiaro-engine"
+version = "0.1.0"
+description = "The deterministic solar-evaluation engine behind kilowattchiaro.it — NPV, IRR, payback, scenarios and historical backtests for Italian residential solar."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE.md" }
+authors = [{ name = "Domenico Di Gangi" }]
+keywords = ["solar", "photovoltaic", "npv", "irr", "payback", "energy", "italy"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "pydantic[email]>=2.7",
+  "pydantic-settings>=2.2",
+]
+
+[project.urls]
+Homepage = "https://kilowattchiaro.it"
+Repository = "https://github.com/domenicodigangi/kilowattchiaro"
+Methodology = "https://github.com/domenicodigangi/kilowattchiaro/blob/master/docs/methodology.md"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kilowattchiaro_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-28.0 -28.0 1168.0 624.0" font-family="system-ui, -apple-system, Segoe UI, sans-serif" role="img" aria-label="From push to production &#8212; the delivery pipeline">
+<rect x="-28.0" y="-28.0" width="1168.0" height="624.0" fill="#FAF7F2"/>
+
+    <defs>
+      <marker id="arrpipe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#6A5C4F"/>
+      </marker>
+    </defs>
+
+    <rect x="0" y="34" width="260" height="124" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="20" y="72" font-size="24" font-weight="700" fill="#2C2319">Push &#8594; CI</text>
+    <text x="20" y="106" font-size="22" fill="#6A5C4F">ruff &#183; pytest &#183; build</text>
+    <text x="20" y="136" font-size="22" fill="#6A5C4F">e2e smoke &#183; registry</text>
+
+    <rect x="284" y="34" width="260" height="124" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="304" y="72" font-size="24" font-weight="700" fill="#2C2319">Test env</text>
+    <text x="304" y="106" font-size="22" fill="#6A5C4F">auto-deployed clone</text>
+    <text x="304" y="136" font-size="22" fill="#6A5C4F">Tailscale-only</text>
+
+    <rect x="568" y="34" width="260" height="124" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="588" y="72" font-size="24" font-weight="700" fill="#2C2319">QA gate</text>
+    <text x="588" y="106" font-size="22" fill="#6A5C4F">health &#8594; 2 AI reviews</text>
+    <text x="588" y="136" font-size="22" fill="#6A5C4F">&#8594; independent triage</text>
+
+    <rect x="852" y="34" width="260" height="124" rx="12" fill="#FFFFFF" stroke="#967430" stroke-width="2.5"/>
+    <text x="872" y="72" font-size="24" font-weight="700" fill="#755A25">rc/vX.Y.Z</text>
+    <text x="872" y="106" font-size="22" fill="#6A5C4F">auto-tag on pass</text>
+    <text x="872" y="136" font-size="22" fill="#6A5C4F">&#8804; MEDIUM promotes</text>
+
+    <line x1="262" y1="96" x2="280" y2="96" stroke="#6A5C4F" stroke-width="2.5" marker-end="url(#arrpipe)"/>
+    <line x1="546" y1="96" x2="564" y2="96" stroke="#6A5C4F" stroke-width="2.5" marker-end="url(#arrpipe)"/>
+    <line x1="830" y1="96" x2="848" y2="96" stroke="#6A5C4F" stroke-width="2.5" marker-end="url(#arrpipe)"/>
+
+    <path d="M 982 158 L 982 190 L 170 190 L 170 212" fill="none" stroke="#6A5C4F" stroke-width="2.5" marker-end="url(#arrpipe)"/>
+
+    <rect x="0" y="216" width="340" height="124" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="20" y="254" font-size="24" font-weight="700" fill="#2C2319">Promote workflow</text>
+    <text x="20" y="288" font-size="22" fill="#6A5C4F">SSH &#183; SOPS &#183; Compose</text>
+    <text x="20" y="318" font-size="22" fill="#6A5C4F">manual or auto</text>
+
+    <rect x="386" y="216" width="340" height="124" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="406" y="254" font-size="24" font-weight="700" fill="#2C2319">Smoke gate</text>
+    <text x="406" y="288" font-size="22" fill="#6A5C4F">3 URLs &#183; 200 within 90 s</text>
+    <text x="406" y="318" font-size="22" fill="#6A5C4F">fail &#8594; rollback comment</text>
+
+    <rect x="772" y="216" width="340" height="124" rx="12" fill="#FFFFFF" stroke="#3D5B32" stroke-width="2.5"/>
+    <text x="792" y="254" font-size="24" font-weight="700" fill="#3D5B32">Production</text>
+    <text x="792" y="288" font-size="22" fill="#6A5C4F">tag production/vX.Y.Z</text>
+    <text x="792" y="318" font-size="22" fill="#6A5C4F">kilowattchiaro.it live</text>
+
+    <line x1="342" y1="278" x2="382" y2="278" stroke="#6A5C4F" stroke-width="2.5" marker-end="url(#arrpipe)"/>
+    <line x1="728" y1="278" x2="768" y2="278" stroke="#6A5C4F" stroke-width="2.5" marker-end="url(#arrpipe)"/>
+
+    <text x="2" y="378" font-size="22" font-weight="700" letter-spacing="1.4" fill="#755A25">OPERATIONS</text>
+
+    <rect x="0" y="390" width="260" height="104" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="20" y="424" font-size="24" font-weight="700" fill="#2C2319">IaC</text>
+    <text x="20" y="456" font-size="22" fill="#6A5C4F">OpenTofu &#8212; Hetzner</text>
+    <text x="20" y="484" font-size="22" fill="#6A5C4F">+ Cloudflare DNS</text>
+
+    <rect x="284" y="390" width="260" height="104" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="304" y="424" font-size="24" font-weight="700" fill="#2C2319">Secrets</text>
+    <text x="304" y="456" font-size="22" fill="#6A5C4F">SOPS-encrypted</text>
+    <text x="304" y="484" font-size="22" fill="#6A5C4F">in the repo</text>
+
+    <rect x="568" y="390" width="260" height="104" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="588" y="424" font-size="24" font-weight="700" fill="#2C2319">Backups</text>
+    <text x="588" y="456" font-size="22" fill="#6A5C4F">nightly, off-site</text>
+    <text x="588" y="484" font-size="22" fill="#6A5C4F">DB &#183; CRM &#183; ledger</text>
+
+    <rect x="852" y="390" width="260" height="104" rx="12" fill="#FFFFFF" stroke="#E8E2D8" stroke-width="2"/>
+    <text x="872" y="424" font-size="24" font-weight="700" fill="#2C2319">Watchdog</text>
+    <text x="872" y="456" font-size="22" fill="#6A5C4F">daily AI ops check</text>
+    <text x="872" y="484" font-size="22" fill="#6A5C4F">silence = healthy</text>
+  
+<rect x="-20.0" y="510.0" width="6" height="40" fill="#967430"/>
+<text x="2.0" y="538.0" font-size="25" font-weight="700" fill="#2C2319">650+ tests and an eval gate on every change &#8212; including a fault-injection eval that fails the build if a fabricated datasheet is ever cited.</text>
+</svg>
