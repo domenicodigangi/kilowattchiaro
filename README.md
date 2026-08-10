@@ -32,6 +32,23 @@ inspectable — the code that computes every number a homeowner sees:
 | [`docs/methodology.md`](docs/methodology.md) — the full methodology: every formula and every assumption, with values | Quote-agent runtime — [public source snapshot](https://github.com/domenicodigangi/kilowattchiaro-agent) |
 | [`docs/architecture.md`](docs/architecture.md) — system design, runtime + delivery diagrams | Component catalogue & price-benchmark data ([open rubric CSV](https://kilowattchiaro.it/open-data) is CC BY 4.0) |
 | [`docs/quote-engine.md`](docs/quote-engine.md) — design of the quote-fairness engine (description + skeleton, deliberately not runnable) | Infrastructure (IaC, deploy, secrets) |
+| [`docs/deck.pdf`](docs/deck.pdf) — the slides from the Demo Day video, appendices included | CRM and installer-partner data |
+
+## The pitch
+
+- **[`docs/deck.pdf`](docs/deck.pdf)** — 15 pages: the twelve slides from
+  the video, plus three appendices that are not spoken in it (why a
+  general-purpose chatbot cannot do this, how the citation gate works, and
+  the push-to-production delivery pipeline).
+- **[`docs/deck.html`](docs/deck.html)** — the same deck, interactive and
+  self-contained: download the raw file and open it in a browser. Arrow
+  keys navigate, `End` jumps to the last spoken slide, and the three
+  appendices follow it.
+
+Both are generated, script-free copies of the presenter deck: the speaker
+notes and the narration are stripped at build time, and
+[`tests/test_published_deck.py`](tests/test_published_deck.py) fails the
+build if a copy still carrying them is ever committed here.
 
 ## Install
 
@@ -104,7 +121,9 @@ crosses the separation is the homeowner's own click. The check cannot
 favor the sale.
 
 More in [`docs/architecture.md`](docs/architecture.md) — including the
-delivery pipeline (650+ tests and an eval gate on every change).
+delivery pipeline (tests and an eval gate on every change, among them a
+fault-injection eval that fails the build if a fabricated datasheet is
+ever cited).
 
 ## Tests
 
@@ -121,7 +140,8 @@ to 2025.
 ## Related
 
 - **[kilowattchiaro.it](https://kilowattchiaro.it)** — the live product:
-  free evaluation, quote check, booking. No account needed for the check.
+  solar evaluation (free, no account), quote check and booking (free, a
+  sign-up).
 - **[kilowattchiaro-agent](https://github.com/domenicodigangi/kilowattchiaro-agent)**
   — public source snapshot of the agentic quote reviewer (LangGraph, MCP,
   Qdrant, citation-gated RAG, eval harness).
