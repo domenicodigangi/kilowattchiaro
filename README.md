@@ -29,7 +29,7 @@ inspectable — the code that computes every number a homeowner sees:
 |---|---|
 | `src/kilowattchiaro_engine/` — the deterministic evaluation engine, **exactly as deployed in production** (NPV, IRR, payback, hourly self-consumption, price scenarios, historical backtests) | Web app, HTTP service layer, persistence |
 | `tests/` — 124 tests: unit, stress, validation, and backtests across the 2011–2025 Italian incentive regimes | Booking service (separate system, no AI in it) |
-| [`docs/methodology.md`](docs/methodology.md) — the full methodology: every formula and every assumption, with values | Quote-agent runtime — [public source snapshot](https://github.com/domenicodigangi/kilowattchiaro-agent) |
+| [`docs/methodology.md`](docs/methodology.md) — the full methodology: every formula and every assumption, with values | Quote-agent runtime — in production at [kilowattchiaro.it/preventivo](https://kilowattchiaro.it/preventivo) |
 | [`docs/architecture.md`](docs/architecture.md) — system design, runtime + delivery diagrams | Component catalogue & price-benchmark data ([open rubric CSV](https://kilowattchiaro.it/open-data) is CC BY 4.0) |
 | [`docs/quote-engine.md`](docs/quote-engine.md) — design of the quote-fairness engine (description + skeleton, deliberately not runnable) | Infrastructure (IaC, deploy, secrets) |
 | [`docs/deck.pdf`](docs/deck.pdf) — the slides from the Demo Day video, appendices included | CRM and installer-partner data |
@@ -142,9 +142,9 @@ to 2025.
 - **[kilowattchiaro.it](https://kilowattchiaro.it)** — the live product:
   solar evaluation (free, no account), quote check and booking (free, a
   sign-up).
-- **[kilowattchiaro-agent](https://github.com/domenicodigangi/kilowattchiaro-agent)**
-  — public source snapshot of the agentic quote reviewer (LangGraph, MCP,
-  Qdrant, citation-gated RAG, eval harness).
+- **[Quote check](https://kilowattchiaro.it/preventivo)** — the agentic
+  quote reviewer in production (LangGraph, MCP, Qdrant, citation-gated
+  RAG, eval harness).
 - **[Open data](https://kilowattchiaro.it/open-data)** — datasets under
   CC BY 4.0, including the photovoltaic price rubric.
 
