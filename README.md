@@ -28,7 +28,7 @@ inspectable — the code that computes every number a homeowner sees:
 | Public — this repo | Private — the product |
 |---|---|
 | `src/kilowattchiaro_engine/` — the deterministic evaluation engine, **exactly as deployed in production** (NPV, IRR, payback, hourly self-consumption, price scenarios, historical backtests) | Web app, HTTP service layer, persistence |
-| `tests/` — 124 tests: unit, stress, validation, and backtests across the 2011–2025 Italian incentive regimes | Booking service (separate system, no AI in it) |
+| `tests/` — 325 tests: unit, stress, validation, and backtests across the 2011–2025 Italian incentive regimes | Booking service (separate system, no AI in it) |
 | [`docs/methodology.md`](docs/methodology.md) — the full methodology: every formula and every assumption, with values | Quote-agent runtime — in production at [kilowattchiaro.it/preventivo](https://kilowattchiaro.it/preventivo) |
 | [`docs/architecture.md`](docs/architecture.md) — system design, runtime + delivery diagrams | Component catalogue & price-benchmark data ([open rubric CSV](https://kilowattchiaro.it/open-data) is CC BY 4.0) |
 | [`docs/quote-engine.md`](docs/quote-engine.md) — design of the quote-fairness engine (description + skeleton, deliberately not runnable) | Infrastructure (IaC, deploy, secrets) |
@@ -132,10 +132,12 @@ pip install -e '.[dev]'
 pytest
 ```
 
-124 tests in four suites: engine unit tests, numerical stress tests
-(zero/near-zero edge cases), validation against reference outcomes, and
-historical backtests replaying every Italian incentive regime from 2011
-to 2025.
+325 tests across the engine: unit tests for every module (tariff
+classification, load-profile inference, hourly matching, price
+projections, incentive regimes, household estimation), numerical stress
+tests (zero/near-zero edge cases), validation against reference
+outcomes, and historical backtests replaying every Italian incentive
+regime from 2011 to 2025.
 
 ## Related
 
