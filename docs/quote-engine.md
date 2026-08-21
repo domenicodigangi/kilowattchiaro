@@ -5,8 +5,9 @@ document describes how the answer is computed. **The code in this
 chapter is a skeleton, deliberately not runnable** — the full
 implementation (benchmark data, i18n, service wiring, evals) is part of
 the private product. The evaluation engine it calls **is** published in
-this repository; the agentic layer around it has a
-[public source snapshot](https://github.com/domenicodigangi/kilowattchiaro-agent).
+this repository; the agentic layer around it is private and runs the
+production quote check at
+[kilowattchiaro.it/preventivo](https://kilowattchiaro.it/preventivo).
 
 ## Two layers
 
@@ -84,8 +85,8 @@ produces a typed, localized finding; none of them involves a model.
   (CC BY 4.0) carries the public reference values; the verdict
   calibration is the product.
 - **The eval harness** that gates the agentic layer in CI (fault
-  injection, SKU-resolution benchmarks, web-evidence gates) — described
-  in the [agent snapshot](https://github.com/domenicodigangi/kilowattchiaro-agent).
+  injection, SKU-resolution benchmarks, web-evidence gates) — part of
+  the private agentic layer.
 - **Service wiring**: upload grants, quotas, persistence, i18n.
 
 The intent of this document is that a reader can judge the *design* —
