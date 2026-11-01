@@ -1,0 +1,4 @@
+# The pipeline's pr step fills this template's What / Why / How headings
+# from the final diff instead of its own default shape.
+pr:
+  template: .github/pull_request_template.md
