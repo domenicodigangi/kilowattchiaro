@@ -1,10 +1,11 @@
 """Pydantic models for solar installation evaluation."""
 
 from datetime import date
+from functools import cached_property
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, PrivateAttr, model_validator
 
 
 class RoofSource(str, Enum):
@@ -36,6 +37,11 @@ class RoofSegment(BaseModel):
     yearly_energy_kwh: float | None = Field(
         default=None, description="Google Solar estimate for this segment"
     )
+    google_dc_kwh_per_kwp: float | None = Field(
+        default=None,
+        ge=0,
+        description="Google Solar shading-aware DC yield of this segment's panels, kWh per kWp",
+    )
     center: GeoPoint | None = None
     bounding_box: GeoBoundingBox | None = None
 
@@ -46,6 +52,16 @@ class RoofInfo(BaseModel):
     segments: list[RoofSegment] = Field(min_length=1)
     total_usable_area_m2: float = Field(gt=0)
     source: RoofSource = RoofSource.MANUAL
+    orientation_source: Literal["detected", "user", "default"] | None = Field(
+        default=None,
+        description="Where tilt and azimuth come from; 'default' = the 30 deg south "
+        "placeholder used when no orientation was detected or entered",
+    )
+    # Free text, not an enum: an unexpected Google value must never fail the evaluation
+    imagery_quality: str | None = Field(
+        default=None, max_length=32,
+        description="Google Solar imageryQuality behind the segments (HIGH, MEDIUM, ...)",
+    )
 
 
 class ConsumptionProfile(BaseModel):
@@ -65,6 +81,18 @@ class ConsumptionProfile(BaseModel):
         default=3.0, ge=1.5, le=10.0,
         description="Potenza impegnata (contracted power capacity in kW)",
     )
+    band_split_known: bool | None = Field(
+        default=None,
+        description=(
+            "True when the F1/F2/F3 split comes from the user's bill; False when "
+            "it is a placeholder. None: infer from the band values."
+        ),
+    )
+    source: Literal["bill", "estimator", "preset", "average", "manual"] | None = Field(
+        default=None,
+        description="How the wizard got annual_kwh; 'preset' and 'average' are typical "
+        "values, not the household's own",
+    )
 
 
 class PriceScenarioName(str, Enum):
@@ -75,6 +103,9 @@ class PriceScenarioName(str, Enum):
     ABUNDANT_RENEWABLES = "abundant_renewables"
     STATUS_QUO = "status_quo"
     ENERGY_CRISIS = "energy_crisis"
+
+
+PriceTier = Literal["basso", "medio", "alto"]
 
 
 class SolarEvalRequest(BaseModel):
@@ -110,6 +141,19 @@ class SolarEvalRequest(BaseModel):
         default=PriceScenarioName.REFERENCE,
         description="Named electricity price trajectory for 20-year evaluation",
     )
+    main_home: bool = Field(
+        default=True,
+        description="Abitazione principale: sets the detrazione rate (50%/36% vs 36%/30%)",
+    )
+    payment_date: date | None = Field(
+        default=None,
+        description="When the installation is paid; None = paid from 2027. Sets the detrazione rule",
+    )
+    price_tier: PriceTier | None = Field(
+        default=None,
+        description="Price tier: floor (basso), central (medio) or ceiling (alto) of the market band "
+        "for the size evaluated; ignored where an explicit cost is given. None = central",
+    )
 
 
 class ScenarioType(str, Enum):
@@ -132,12 +176,92 @@ class MonthlyDetail(BaseModel):
     )
 
 
+Verdict = Literal["positive", "caution", "negative"]
+
+
+class RobustnessFactor(BaseModel):
+    """One input whose change flips the verdict: the lower detrazione rate, another
+    price scenario, or self-consumption lower by a number of points."""
+
+    input: Literal["detrazione", "price_scenario", "self_consumption"]
+    detrazione_percent: int | None = Field(default=None, ge=0, le=100)
+    price_scenario: PriceScenarioName | None = None
+    self_consumption_points: int | None = Field(default=None, ge=-100, le=0)
+
+    @model_validator(mode="after")
+    def _value_for_its_input(self) -> "RobustnessFactor":
+        field = {
+            "detrazione": "detrazione_percent",
+            "price_scenario": "price_scenario",
+            "self_consumption": "self_consumption_points",
+        }[self.input]
+        if getattr(self, field) is None:
+            raise ValueError(f"{self.input} needs {field}")
+        return self
+
+
+class Robustness(BaseModel):
+    """How firmly the verdict holds over detrazione x price scenario x self-consumption -10 pt.
+
+    ``robust``: no cell of that grid changes the verdict. ``depends``: only the inputs
+    in ``depends_on`` change it (one input alone, or the smallest combination).
+    ``fragile``: two or more inputs each change it on their own, listed in
+    ``depends_on``. No probabilities.
+    """
+
+    level: Literal["robust", "depends", "fragile"]
+    depends_on: list[RobustnessFactor] = Field(default_factory=list, max_length=3)
+
+    @model_validator(mode="after")
+    def _inputs_match_level(self) -> "Robustness":
+        if (self.level == "robust") != (not self.depends_on):
+            raise ValueError("robust names no input; depends and fragile name at least one")
+        return self
+
+
+class SensitivityCell(BaseModel):
+    """The engine's result for one discrete what-if choice: price scenario x cost tier.
+
+    ``price_tier`` is null when the request fixed its own costs, so only the price
+    axis varies.
+    """
+
+    price_scenario: PriceScenarioName
+    price_tier: PriceTier | None = None
+    panel_cost_eur_per_kwp: float
+    battery_cost_eur: float | None = None
+    battery_replacement_eur: float | None = None
+    investment_cost_eur: float
+    annual_detrazione_eur: float
+    annual_electricity_cost_eur: float
+    annual_rid_revenue_eur: float
+    annual_savings_eur: float
+    payback_years: float | None = None
+    npv_20yr_eur: float
+    irr_percent: float | None = None
+    cumulative_cash_flow: list[float]
+    annual_breakdown: list[dict]
+    verdict: Verdict
+    robustness: Robustness
+
+
 class ScenarioResult(BaseModel):
     """Financial result for one scenario (status quo, solar, solar+battery)."""
 
     scenario: ScenarioType
     label: str
     investment_cost_eur: float = 0.0
+    investment_range_eur: tuple[float, float] | None = Field(
+        default=None,
+        description=(
+            "(floor, ceiling) market price band for this system, from the regional "
+            "PV band x kWp plus the battery band x kWh. Without an explicit panel or "
+            "battery cost, investment_cost_eur is the band central."
+        ),
+    )
+    investment_central_eur: float | None = Field(
+        default=None, description="Central point of investment_range_eur"
+    )
     annual_electricity_cost_eur: float
     annual_rid_revenue_eur: float = 0.0
     annual_detrazione_eur: float = Field(
@@ -167,6 +291,19 @@ class ScenarioResult(BaseModel):
     )
     self_consumption_percent: float = 0.0
     monthly_details: list[MonthlyDetail] = Field(default_factory=list)
+    verdict: Verdict | None = Field(
+        default=None,
+        description="Engine verdict: positive (NPV > 0 and break-even within 20 years), "
+        "caution (savings but no positive NPV), negative. Null for status quo.",
+    )
+    robustness: Robustness | None = Field(
+        default=None, description="How firmly the verdict holds; null for status quo"
+    )
+    sensitivity: list[SensitivityCell] | None = Field(
+        default=None,
+        description="Pre-computed results for each price scenario x cost tier; "
+        "the cell of the request equals this scenario",
+    )
 
 
 class SolarEvalResult(BaseModel):
@@ -176,6 +313,9 @@ class SolarEvalResult(BaseModel):
     annual_production_kwh: float
     system_kwp: float
     location: str = Field(description="lat,lon used for calculation")
+    engine_version: str | None = Field(
+        default=None, description="Version of the engine that computed these figures"
+    )
     assumptions: dict = Field(
         default_factory=dict,
         description="Key assumptions used in calculation",
@@ -221,6 +361,19 @@ class SolarRecommendationRequest(BaseModel):
     price_scenario: PriceScenarioName = Field(
         default=PriceScenarioName.REFERENCE,
         description="Named electricity price trajectory for 20-year evaluation",
+    )
+    main_home: bool = Field(
+        default=True,
+        description="Abitazione principale: sets the detrazione rate (50%/36% vs 36%/30%)",
+    )
+    payment_date: date | None = Field(
+        default=None,
+        description="When the installation is paid; None = paid from 2027. Sets the detrazione rule",
+    )
+    price_tier: PriceTier | None = Field(
+        default=None,
+        description="Price tier: floor (basso), central (medio) or ceiling (alto) of the market band "
+        "for the size evaluated; ignored where an explicit cost is given. None = central",
     )
     min_kwp: float = Field(default=1.0, gt=0.0, le=20.0)
     max_kwp: float | None = Field(default=None, gt=0.0, le=20.0)
@@ -283,6 +436,10 @@ class PVGISResult(BaseModel):
 
     monthly: list[PVGISMonthly]
     yearly_kwh: float
+    yearly_sd_kwh: float | None = Field(
+        default=None,
+        description="PVGIS SD_y: standard deviation of annual production from year-to-year variation",
+    )
     location: str
 
 
@@ -304,6 +461,11 @@ class GoogleSolarResult(BaseModel):
     yearly_energy_kwh: float
     carbon_offset_kg: float | None = None
     coverage_available: bool = True
+    imagery_quality: str | None = None
+    default_segment: bool = Field(
+        default=False,
+        description="True when no usable segment was detected and segments hold the 30 deg south default",
+    )
 
 
 class SolarPanel(BaseModel):
@@ -435,6 +597,12 @@ class PVGISHourlyRecord(BaseModel):
     ghi_wm2: float = Field(ge=0, description="Global Horizontal Irradiance W/m2")
     temperature_c: float = Field(description="Ambient temperature in Celsius")
     wind_speed_ms: float = Field(ge=0, default=0.0, description="Wind speed m/s")
+    dni_wm2: float | None = Field(
+        default=None, ge=0, description="Direct normal irradiance Gb(n), W/m2"
+    )
+    dhi_wm2: float | None = Field(
+        default=None, ge=0, description="Diffuse horizontal irradiance Gd(h), W/m2"
+    )
 
 
 class PVGISTMYResult(BaseModel):
@@ -442,6 +610,21 @@ class PVGISTMYResult(BaseModel):
 
     records: list[PVGISHourlyRecord] = Field(min_length=8760, max_length=8760)
     location: str = Field(description="lat,lon used for query")
+    lat: float | None = Field(default=None, description="Latitude of the TMY")
+    lon: float | None = Field(default=None, description="Longitude of the TMY")
+    irradiance_time_offset_h: float = Field(
+        default=0.0,
+        description="PVGIS irradiance_time_offset: irradiance at hour H is for H + offset (UTC)",
+    )
+    # Plane-of-array irradiance and temperature factors already computed from these records, by plane
+    _plane_series: dict[
+        tuple[float, float, float, float], tuple[tuple[float, ...], tuple[float, ...]]
+    ] = PrivateAttr(default_factory=dict)
+
+    @cached_property
+    def has_components(self) -> bool:
+        """True when DNI and DHI were kept, so tilted-plane irradiance can be computed."""
+        return all(r.dni_wm2 is not None and r.dhi_wm2 is not None for r in self.records)
 
 
 # ---------------------------------------------------------------------------
@@ -532,6 +715,14 @@ class EmailResultsRequest(BaseModel):
     annual_production_kwh: float = Field(ge=0, le=200_000)
     annual_savings_eur: float = Field(ge=0, le=100_000)
     payback_years: float | None = Field(default=None, ge=0, le=100)
+    detrazione_percent: int = Field(
+        default=50, ge=0, le=100, description="Deduction rate the evaluation applied"
+    )
+    main_home: bool = Field(default=True, description="Whether the evaluation assumed a main home")
+    verdict: Verdict | None = Field(default=None, description="Engine verdict on the result shown")
+    robustness: Robustness | None = Field(
+        default=None, description="Engine robustness label for that verdict"
+    )
     followup_consent: bool = Field(
         default=False,
         description="Opt-in (unticked by default) to future contact from "

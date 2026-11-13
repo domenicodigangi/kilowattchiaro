@@ -12,16 +12,21 @@ from ..models.contract import TariffBand
 from ..models.hourly import HourlyLoadProfile
 from ..models.solar_eval import ConsumptionProfile
 from ..tariff import classify_band
-from .archetypes import ARCHETYPES, LoadArchetype, _DAYS_PER_MONTH, _REFERENCE_YEAR
+from .archetypes import (
+    ARCHETYPES,
+    AVERAGE_HOUSEHOLD,
+    LoadArchetype,
+    _DAYS_PER_MONTH,
+    _REFERENCE_YEAR,
+)
 
 logger = logging.getLogger(__name__)
 
 # Named constants for tuning parameters
-_RANGE_PENALTY_FACTOR = 0.1
-_ANNUAL_ONLY_RANGE_WEIGHT = 10.0
 _EXTREME_SCALE_THRESHOLD = 3.0
 _PEAK_CAP_HEADROOM = 1.1
 _PEAK_CAP_WARNING_RATIO = 0.10
+_REDISTRIBUTION_MAX_ROUNDS = 50
 
 
 class _InputMode(Enum):
@@ -67,22 +72,13 @@ def _chi_squared(
     )
 
 
-def _range_penalty(annual_kwh: float, arch: LoadArchetype) -> float:
-    """Penalty for annual_kwh falling outside archetype's typical range."""
-    low, high = arch.annual_kwh_range
-    if annual_kwh < low:
-        distance = (low - annual_kwh) / (high - low)
-    elif annual_kwh > high:
-        distance = (annual_kwh - high) / (high - low)
-    else:
-        return 0.0
-    return distance ** 2 * _RANGE_PENALTY_FACTOR
-
-
 def _select_archetype_trioraria(
-    f1_kwh: float, f2_kwh: float, f3_kwh: float, annual_kwh: float,
+    f1_kwh: float, f2_kwh: float, f3_kwh: float,
 ) -> LoadArchetype:
-    """Select best-fit archetype using 3-way chi-squared on F1/F2/F3 ratios."""
+    """Select best-fit archetype using 3-way chi-squared on F1/F2/F3 ratios.
+
+    The split alone decides: annual kWh is not a lifestyle signal.
+    """
     if not ARCHETYPES:
         raise ValueError("No archetypes defined — cannot select archetype")
     total = f1_kwh + f2_kwh + f3_kwh
@@ -92,7 +88,7 @@ def _select_archetype_trioraria(
     best_arch: LoadArchetype | None = None
     for arch in ARCHETYPES:
         arch_ratios = (arch.f1_fraction, arch.f2_fraction, arch.f3_fraction)
-        score = _chi_squared(bill_ratios, arch_ratios) + _range_penalty(annual_kwh, arch)
+        score = _chi_squared(bill_ratios, arch_ratios)
         if score < best_score:
             best_score = score
             best_arch = arch
@@ -101,7 +97,7 @@ def _select_archetype_trioraria(
 
 
 def _select_archetype_bioraria(
-    f1_kwh: float, f23_kwh: float, annual_kwh: float,
+    f1_kwh: float, f23_kwh: float,
 ) -> LoadArchetype:
     """Select best-fit archetype using 2-way chi-squared on F1/F23 ratios."""
     if not ARCHETYPES:
@@ -113,7 +109,7 @@ def _select_archetype_bioraria(
     best_arch: LoadArchetype | None = None
     for arch in ARCHETYPES:
         arch_ratios = (arch.f1_fraction, arch.f2_fraction + arch.f3_fraction)
-        score = _chi_squared(bill_ratios, arch_ratios) + _range_penalty(annual_kwh, arch)
+        score = _chi_squared(bill_ratios, arch_ratios)
         if score < best_score:
             best_score = score
             best_arch = arch
@@ -121,29 +117,32 @@ def _select_archetype_bioraria(
     return best_arch
 
 
-def _select_archetype_annual_only(
-    annual_kwh: float, potenza_impegnata: float,
-) -> LoadArchetype:
-    """Select archetype by potenza_impegnata proximity + annual_kwh range overlap."""
-    if not ARCHETYPES:
-        raise ValueError("No archetypes defined — cannot select archetype")
-    best_score = float("inf")
-    best_arch: LoadArchetype | None = None
-    for arch in ARCHETYPES:
-        potenza_dist = abs(arch.typical_potenza_kw - potenza_impegnata)
-        low, high = arch.annual_kwh_range
-        if annual_kwh < low:
-            range_dist = (low - annual_kwh) / annual_kwh
-        elif annual_kwh > high:
-            range_dist = (annual_kwh - high) / annual_kwh
-        else:
-            range_dist = 0.0
-        score = potenza_dist + range_dist * _ANNUAL_ONLY_RANGE_WEIGHT
-        if score < best_score:
-            best_score = score
-            best_arch = arch
-    assert best_arch is not None
-    return best_arch
+def _cap_and_redistribute(values: list[float], cap: float) -> float:
+    """Clip hours above ``cap`` and move the clipped energy to the other hours.
+
+    The clipped energy is spread over the uncapped hours in proportion to their
+    load, so the daily shape is kept and the annual total is unchanged. Repeats
+    until no hour exceeds the cap. Returns the energy that was moved.
+    Mutates ``values`` in place.
+    """
+    moved = 0.0
+    for _ in range(_REDISTRIBUTION_MAX_ROUNDS):
+        excess = 0.0
+        for i, v in enumerate(values):
+            if v > cap:
+                excess += v - cap
+                values[i] = cap
+        if excess <= 1e-9:
+            break
+        moved += excess
+        uncapped = sum(v for v in values if v < cap)
+        if uncapped <= 0:
+            break
+        factor = 1.0 + excess / uncapped
+        for i, v in enumerate(values):
+            if v < cap:
+                values[i] = v * factor
+    return moved
 
 
 def infer_hourly_load(
@@ -154,44 +153,56 @@ def infer_hourly_load(
 
     Algorithm:
     1. Detect input mode (trioraria/bioraria/annual-only)
-    2. Select best-fit archetype by chi-squared on band ratios
-    3. Scale archetype profile to match bill's actual kWh
-    4. Per-band scaling to match F1/F2/F3 totals exactly
-    5. Cap peaks at potenza_impegnata * 1.1
+    2. Select the archetype from the F1/F2/F3 split when it is known; otherwise
+       use the average household
+    3. Scale the profile to ``annual_kwh`` (band shares kept when the bands
+       do not sum to it)
+    4. Per-band scaling to match the F1/F2/F3 shares
+    5. Cap peaks at potenza_impegnata * 1.1 and redistribute the clipped energy
+
+    Invariant: ``sum(values) == consumption.annual_kwh``.
     """
     mode = _detect_input_mode(consumption)
+    split_known = (
+        consumption.band_split_known
+        if consumption.band_split_known is not None
+        else mode != _InputMode.ANNUAL_ONLY
+    )
+    if not split_known:
+        mode = _InputMode.ANNUAL_ONLY
+    total_kwh = consumption.annual_kwh
 
-    # Step 1: Select archetype and determine total kWh
+    # Step 1: Select archetype
     if mode == _InputMode.TRIORARIA:
-        total_kwh = consumption.f1_kwh + consumption.f2_kwh + consumption.f3_kwh
         arch = _select_archetype_trioraria(
             consumption.f1_kwh, consumption.f2_kwh, consumption.f3_kwh,
-            consumption.annual_kwh,
         )
     elif mode == _InputMode.BIORARIA:
-        total_kwh = consumption.f1_kwh + consumption.f3_kwh  # f3_kwh holds F23
-        arch = _select_archetype_bioraria(
-            consumption.f1_kwh, consumption.f3_kwh, consumption.annual_kwh,
-        )
+        arch = _select_archetype_bioraria(consumption.f1_kwh, consumption.f3_kwh)
     else:
-        total_kwh = consumption.annual_kwh
-        arch = _select_archetype_annual_only(consumption.annual_kwh, potenza_impegnata)
+        arch = AVERAGE_HOUSEHOLD
 
     logger.info("Selected archetype '%s' for mode=%s", arch.id, mode.value)
 
     # Step 2: Scale profile to match total kWh
     raw_values = [v * total_kwh for v in arch.normalized_profile]
 
-    # Step 3: Per-band scaling (trioraria and bioraria only)
+    # Step 3: Per-band scaling (trioraria and bioraria only). Band targets keep
+    # the bill's shares but sum to annual_kwh.
     if mode == _InputMode.TRIORARIA:
+        band_sum = consumption.f1_kwh + consumption.f2_kwh + consumption.f3_kwh
+        targets = {
+            TariffBand.F1: consumption.f1_kwh * total_kwh / band_sum,
+            TariffBand.F2: consumption.f2_kwh * total_kwh / band_sum,
+            TariffBand.F3: consumption.f3_kwh * total_kwh / band_sum,
+        }
         raw_sums = {TariffBand.F1: 0.0, TariffBand.F2: 0.0, TariffBand.F3: 0.0}
         for v, b in zip(raw_values, _BAND_MAP):
             raw_sums[b] += v
 
         scale = {
-            TariffBand.F1: consumption.f1_kwh / raw_sums[TariffBand.F1] if raw_sums[TariffBand.F1] > 0 else 1.0,
-            TariffBand.F2: consumption.f2_kwh / raw_sums[TariffBand.F2] if raw_sums[TariffBand.F2] > 0 else 1.0,
-            TariffBand.F3: consumption.f3_kwh / raw_sums[TariffBand.F3] if raw_sums[TariffBand.F3] > 0 else 1.0,
+            band: targets[band] / raw_sums[band] if raw_sums[band] > 0 else 1.0
+            for band in targets
         }
         values = [v * scale[b] for v, b in zip(raw_values, _BAND_MAP)]
 
@@ -200,6 +211,7 @@ def infer_hourly_load(
                 logger.warning("Extreme per-band scale factor: %.2f", s)
 
     elif mode == _InputMode.BIORARIA:
+        band_sum = consumption.f1_kwh + consumption.f3_kwh  # f3_kwh holds F23
         raw_f1 = 0.0
         raw_f23 = 0.0
         for v, b in zip(raw_values, _BAND_MAP):
@@ -208,8 +220,8 @@ def infer_hourly_load(
             else:
                 raw_f23 += v
 
-        scale_f1 = consumption.f1_kwh / raw_f1 if raw_f1 > 0 else 1.0
-        scale_f23 = consumption.f3_kwh / raw_f23 if raw_f23 > 0 else 1.0
+        scale_f1 = consumption.f1_kwh * total_kwh / band_sum / raw_f1 if raw_f1 > 0 else 1.0
+        scale_f23 = consumption.f3_kwh * total_kwh / band_sum / raw_f23 if raw_f23 > 0 else 1.0
 
         values = [
             v * (scale_f1 if b == TariffBand.F1 else scale_f23)
@@ -222,20 +234,26 @@ def infer_hourly_load(
     else:
         values = raw_values
 
-    # Step 4: Cap peaks at potenza_impegnata * headroom
+    # Step 4: Cap peaks at potenza_impegnata * headroom, keeping the energy.
     cap = potenza_impegnata * _PEAK_CAP_HEADROOM
-    capped_energy = 0.0
-    for i, v in enumerate(values):
-        if v > cap:
-            capped_energy += v - cap
-            values[i] = cap
-
-    if capped_energy > total_kwh * _PEAK_CAP_WARNING_RATIO:
+    if total_kwh > cap * len(values):
         logger.warning(
-            "Peak capping removed %.1f kWh (%.1f%% of total) — "
-            "potenza_impegnata=%.1f kW may be too low",
-            capped_energy, capped_energy / total_kwh * 100, potenza_impegnata,
+            "annual_kwh=%.0f exceeds what potenza_impegnata=%.1f kW can deliver; "
+            "peaks left uncapped",
+            total_kwh, potenza_impegnata,
         )
+    else:
+        moved = _cap_and_redistribute(values, cap)
+        if moved > total_kwh * _PEAK_CAP_WARNING_RATIO:
+            logger.warning(
+                "Peak capping moved %.1f kWh (%.1f%% of total) — "
+                "potenza_impegnata=%.1f kW may be too low",
+                moved, moved / total_kwh * 100, potenza_impegnata,
+            )
+
+    # Remove floating-point drift so the invariant holds exactly.
+    drift = total_kwh / sum(values)
+    values = [v * drift for v in values]
 
     return HourlyLoadProfile(
         values=values,

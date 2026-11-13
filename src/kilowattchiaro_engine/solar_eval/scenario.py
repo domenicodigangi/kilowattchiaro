@@ -51,6 +51,7 @@ def _monthly_from_hourly_match(
     match_result: HourlySelfConsumptionResult,
     all_in_rate: float,
     rid_price: float,
+    fixed_charges_eur_yr: float = 0.0,
 ) -> list[MonthlyDetail]:
     return [
         MonthlyDetail(
@@ -59,7 +60,9 @@ def _monthly_from_hourly_match(
             self_consumption_kwh=round(ms["self_consumption_kwh"], 1),
             grid_import_kwh=round(ms["grid_import_kwh"], 1),
             grid_export_kwh=round(ms["grid_export_kwh"], 1),
-            electricity_cost_eur=round(ms["grid_import_kwh"] * all_in_rate, 2),
+            electricity_cost_eur=round(
+                ms["grid_import_kwh"] * all_in_rate + fixed_charges_eur_yr / 12, 2
+            ),
             rid_revenue_eur=round(ms["grid_export_kwh"] * rid_price, 2),
         )
         for ms in match_result.monthly_summary
@@ -69,6 +72,7 @@ def _monthly_from_hourly_match(
 def _status_quo_monthly(
     consumption: ConsumptionProfile,
     all_in_rate: float,
+    fixed_charges_eur_yr: float = 0.0,
 ) -> list[MonthlyDetail]:
     details = []
     for i, share in enumerate(_MONTHLY_CONSUMPTION_SHARE):
@@ -80,7 +84,9 @@ def _status_quo_monthly(
                 self_consumption_kwh=0.0,
                 grid_import_kwh=round(month_kwh, 1),
                 grid_export_kwh=0.0,
-                electricity_cost_eur=round(month_kwh * all_in_rate, 2),
+                electricity_cost_eur=round(
+                    month_kwh * all_in_rate + fixed_charges_eur_yr / 12, 2
+                ),
             )
         )
     return details
@@ -92,6 +98,7 @@ def _solar_monthly(
     all_in_rate: float,
     self_consumption_ratio: float,
     rid_price: float,
+    fixed_charges_eur_yr: float = 0.0,
 ) -> list[MonthlyDetail]:
     details = []
     prod_by_month = {m.month: m.e_m for m in monthly_production}
@@ -115,7 +122,9 @@ def _solar_monthly(
                 self_consumption_kwh=round(self_consumed, 1),
                 grid_import_kwh=round(grid_import, 1),
                 grid_export_kwh=round(total_export, 1),
-                electricity_cost_eur=round(grid_import * all_in_rate, 2),
+                electricity_cost_eur=round(
+                    grid_import * all_in_rate + fixed_charges_eur_yr / 12, 2
+                ),
                 rid_revenue_eur=round(total_export * rid_price, 2),
             )
         )

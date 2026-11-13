@@ -239,14 +239,14 @@ class TestEdgeCases:
         assert all(v >= 0 for v in profile.values)
 
     def test_band_sum_differs_from_annual(self):
-        """f1+f2+f3 != annual_kwh — uses band sum for scaling."""
+        """f1+f2+f3 != annual_kwh — band shares kept, total is annual_kwh (engine v1)."""
         consumption = _make_consumption(
             annual_kwh=2800, f1_kwh=1200, f2_kwh=1050, f3_kwh=750,
         )
         profile = infer_hourly_load(consumption)
         total = profile.total_kwh()
-        # Should match band sum (3000), not annual_kwh (2800)
-        assert total == pytest.approx(3000, rel=0.05), f"Total: {total:.1f} vs 3000"
+        # The cash flow prices annual_kwh, so the profile must carry exactly that energy
+        assert total == pytest.approx(2800, rel=1e-9), f"Total: {total:.1f} vs 2800"
 
     def test_metadata_fields(self):
         """Output has correct metadata."""
@@ -275,3 +275,63 @@ class TestPerformance:
         infer_hourly_load(consumption, potenza_impegnata=3.0)
         elapsed_ms = (time.perf_counter() - start) * 1000
         assert elapsed_ms < 500, f"Inference took {elapsed_ms:.0f}ms (limit: 500ms)"
+
+
+# ---------------------------------------------------------------------------
+# Engine release v1: energy conservation and archetype from the split
+# ---------------------------------------------------------------------------
+
+class TestEnergyConservation:
+    """sum(hourly_load) == annual_kwh is a hard invariant, including after peak capping."""
+
+    @pytest.mark.parametrize(
+        ("annual_kwh", "bands", "potenza"),
+        [
+            (4000, (1600, 1200, 1200), 3.0),
+            (7000, (2800, 2100, 2100), 1.5),  # cap binds hard: 1.65 kW
+            (6000, (0, 0, 0), 1.5),  # annual-only
+            (5000, (2000, 0, 3000), 1.5),  # bioraria
+            (2800, (1200, 1050, 750), 3.0),  # band sum 3000 != annual 2800
+        ],
+    )
+    def test_sum_equals_annual_kwh(self, annual_kwh, bands, potenza):
+        consumption = _make_consumption(annual_kwh, *bands)
+        profile = infer_hourly_load(consumption, potenza_impegnata=potenza)
+        assert sum(profile.values) == pytest.approx(annual_kwh, rel=1e-9)
+        assert max(profile.values) <= potenza * 1.1 + 1e-9
+
+    def test_capped_energy_is_redistributed_not_dropped(self):
+        consumption = _make_consumption(7000, 2800, 2100, 2100)
+        profile = infer_hourly_load(consumption, potenza_impegnata=1.5)
+        assert sum(profile.values) == pytest.approx(7000, rel=1e-9)
+
+
+class TestArchetypeFromSplit:
+    """The archetype follows the F1/F2/F3 split when it is known; no kWh pin."""
+
+    @pytest.mark.parametrize("split", [(40, 30, 30), (40, 35, 25), (30, 30, 40), (25, 35, 40)])
+    def test_known_split_selects_the_same_archetype_at_any_consumption(self, split):
+        chosen = set()
+        for kwh in (2500, 4000, 6000):
+            f1, f2, f3 = (s * kwh / 100 for s in split)
+            consumption = ConsumptionProfile(
+                annual_kwh=kwh, f1_kwh=f1, f2_kwh=f2, f3_kwh=f3, band_split_known=True,
+            )
+            chosen.add(infer_hourly_load(consumption, potenza_impegnata=4.5).selected_archetype)
+        assert len(chosen) == 1, chosen
+
+    def test_4000_kwh_with_a_40_30_30_split_is_not_pinned_to_ac_heavy(self):
+        consumption = ConsumptionProfile(
+            annual_kwh=4000, f1_kwh=1600, f2_kwh=1200, f3_kwh=1200, band_split_known=True,
+        )
+        assert infer_hourly_load(consumption).selected_archetype == "work_from_home"
+
+    @pytest.mark.parametrize("bands", [(1600, 1400, 1000), (0, 0, 0)])
+    def test_unknown_split_uses_the_average_household(self, bands):
+        consumption = ConsumptionProfile(
+            annual_kwh=4000, f1_kwh=bands[0], f2_kwh=bands[1], f3_kwh=bands[2],
+            band_split_known=False if any(bands) else None,
+        )
+        profile = infer_hourly_load(consumption)
+        assert profile.selected_archetype == "average_household"
+        assert sum(profile.values) == pytest.approx(4000, rel=1e-9)

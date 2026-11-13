@@ -7,7 +7,7 @@ and appliance modifiers.  No LLM required — pure deterministic logic.
 
 from __future__ import annotations
 
-from .config import settings
+from .solar_eval.tariff import estimated_annual_bill_eur
 from .models.solar_eval import (
     ConsumptionProfile,
     DaytimeOccupancy,
@@ -145,7 +145,7 @@ def estimate_consumption(req: HouseholdEstimationRequest) -> HouseholdEstimation
     f3_kwh = round(annual_kwh * best_arch.f3_fraction)
 
     # 4. Cost estimate
-    annual_cost_eur = round(annual_kwh * settings.default_electricity_price_eur_kwh)
+    annual_cost_eur = round(estimated_annual_bill_eur(annual_kwh))
 
     # 5. Potenza from archetype
     potenza_kw = best_arch.typical_potenza_kw
@@ -157,6 +157,7 @@ def estimate_consumption(req: HouseholdEstimationRequest) -> HouseholdEstimation
         f3_kwh=f3_kwh,
         annual_cost_eur=annual_cost_eur,
         potenza_impegnata_kw=potenza_kw,
+        band_split_known=True,
     )
 
     return HouseholdEstimationResult(

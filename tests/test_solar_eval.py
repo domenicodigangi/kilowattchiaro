@@ -1,9 +1,11 @@
-"""Tests for the solar installation evaluation engine."""
+"""Tests for solar installation evaluation engine and connectors."""
+
+from datetime import date
 
 import pytest
 
 from mock_pvgis import get_mock_pvgis_tmy_result
-from kilowattchiaro_engine.pvgis import tmy_to_hourly_kw
+from mock_pvgis import tmy_to_hourly_kw
 from kilowattchiaro_engine.solar_eval import (
     _annual_profile_from_monthly,
     _build_annual_cash_flow_projection,
@@ -459,16 +461,18 @@ def test_reference_scenario_stays_close_to_legacy_two_pct_path(
         desired_kwp=6.0,
         price_scenario=PriceScenarioName.REFERENCE,
         energy_price_inflation=0.02,
+        payment_date=date(2026, 12, 1),
     )
     solar = result.scenarios[1]
 
     # Structural guard: for a 6 kWp system in Rome with 2% inflation on the
     # REFERENCE price scenario, NPV should be meaningfully positive and within
-    # a plausible range.  Exact value varies with dependency versions (observed
-    # With turnkey installed cost at €2200/kWp (investment €13,200), NPV is
-    # lower than with the old €1700/kWp but still positive.  Observed ~1094.
+    # a plausible range. With no region the investment is the national PV band
+    # central (€1,700/kWp, €10,200 for 6 kWp). Engine 1.0.0 values the ~7,400
+    # exported kWh at the market price (~€0.076) instead of the €0.0475 floor,
+    # which moved this case from ~€3k to ~€6.8k.
     assert solar.npv_20yr_eur is not None
-    assert 500 < solar.npv_20yr_eur < 5000, (
+    assert 3000 < solar.npv_20yr_eur < 9000, (
         f"NPV {solar.npv_20yr_eur} outside plausible range for 6 kWp Rome reference scenario"
     )
 
@@ -811,3 +815,72 @@ def test_manual_roof_source_evaluation(rome_consumption, rome_production_6kwp):
     # Just verify it doesn't crash with manual inputs
     assert len(result.scenarios) == 2
     assert result.system_kwp == 6.0
+
+
+# --- Funnel price range (ticket 303): banded centrals, no constant changed ---
+
+def test_scenarios_carry_a_market_price_range(rome_consumption, rome_production_6kwp):
+    """6 kWp + 10 kWh centro: stacked band 11.3-20.0k, central 15.1k (memo 6.1)."""
+    result = evaluate_solar(
+        consumption=rome_consumption,
+        monthly_production=rome_production_6kwp,
+        desired_kwp=6.0,
+        include_battery=True,
+        battery_kwh=10.0,
+        region="centro",
+    )
+    solar, battery = result.scenarios[1], result.scenarios[2]
+    assert solar.investment_range_eur == (6300, 10500)
+    assert solar.investment_central_eur == 8100
+    assert battery.investment_range_eur == (11300, 20000)
+    assert battery.investment_central_eur == 15100
+    assert result.scenarios[0].investment_range_eur is None
+
+
+def test_modelled_investment_is_the_banded_central(rome_consumption, rome_production_6kwp):
+    """Without a cost override, payback/NPV/detrazione run on the same central as the range."""
+    result = evaluate_solar(
+        consumption=rome_consumption,
+        monthly_production=rome_production_6kwp,
+        desired_kwp=6.0,
+        include_battery=True,
+        battery_kwh=10.0,
+        region="centro",
+        payment_date=date(2026, 12, 1),  # 50% applies to main homes paid in 2026
+    )
+    solar, battery = result.scenarios[1], result.scenarios[2]
+    assert solar.investment_cost_eur == solar.investment_central_eur == 8100
+    assert battery.investment_cost_eur == battery.investment_central_eur == 15100
+    assert battery.annual_detrazione_eur == 15100 * 0.5 / 10
+    assert result.assumptions["battery_cost_eur"] == 7000
+    assert battery.cumulative_cash_flow[0] == -15100
+
+
+def test_explicit_costs_win_over_the_banded_central(rome_consumption, rome_production_6kwp):
+    """A chosen price tier (EUR/kWp + EUR/kWh) drives the economics; the range stays the market band."""
+    result = evaluate_solar(
+        consumption=rome_consumption,
+        monthly_production=rome_production_6kwp,
+        desired_kwp=6.0,
+        include_battery=True,
+        battery_kwh=10.0,
+        panel_cost_eur_per_kwp=1800,
+        battery_cost_eur_per_kwh=500,
+        region="centro",
+    )
+    battery = result.scenarios[2]
+    assert battery.investment_cost_eur == 6 * 1800 + 10 * 500
+    assert result.assumptions["battery_cost_eur"] == 5000
+    assert battery.investment_range_eur == (11300, 20000)
+
+
+def test_price_range_without_region_uses_the_national_pv_band(
+    rome_consumption, rome_production_6kwp
+):
+    result = evaluate_solar(
+        consumption=rome_consumption,
+        monthly_production=rome_production_6kwp,
+        desired_kwp=6.0,
+    )
+    low, high = result.scenarios[1].investment_range_eur
+    assert 0 < low < result.scenarios[1].investment_central_eur < high

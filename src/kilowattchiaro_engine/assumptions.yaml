@@ -1,0 +1,149 @@
+# Assumptions register (Wayfinder ticket 314).
+#
+# Every money input the /solar and /preventivo engines rest on, in one dated
+# file. The engine reads its values from here (app/assumptions.py) and
+# /metodologia renders the register from frontend/src/data/assumptions.json,
+# which `uv run python scripts/export_assumptions.py` (from backend/) regenerates
+# together with the open-data price rubric CSV. A test fails when either file is
+# out of date.
+#
+# Fields:
+#   value         the number (or table) the engine uses
+#   unit          unit of `headline` ("share" is a 0-1 fraction, shown as %)
+#   headline      dotted path into `value` that /metodologia shows (omit for a scalar)
+#   source        where the value comes from (an evidence file or a public source)
+#   verified_on   when someone last checked the value against its source
+#   owner         who re-checks it
+#   review_every  how long a check stays valid, in days ("180d")
+#   rule_ends_on  last day of the rule or period the value belongs to (optional)
+#
+# The staleness gate (scripts/check_assumptions.py, run by CI on every build)
+# fails when verified_on + review_every is in the past, and warns when a rule
+# ends within 60 days or has already ended. Clearing it takes one re-check of the
+# source and a new verified_on date (plus a new value and an engine release
+# when the source moved).
+
+assumptions:
+  - id: pv_cost_bands
+    # (floor, central, ceiling) EUR/kWp by macro-region and size band:
+    # small 1-3 kWp, medium 3-6, large 6-10, xlarge 10-20. The bands the quote
+    # cost verdict was frozen on (ticket 303). `national_region` is the band
+    # used when no location is known.
+    value:
+      national_region: centro
+      bands_eur_per_kwp:
+        nord:
+          small: [1200, 1500, 1900]
+          medium: [1100, 1400, 1800]
+          large: [1000, 1300, 1700]
+          xlarge: [900, 1200, 1600]
+        centro:
+          small: [1150, 1450, 1850]
+          medium: [1050, 1350, 1750]
+          large: [950, 1250, 1650]
+          xlarge: [850, 1150, 1550]
+        sud:
+          small: [1100, 1400, 1800]
+          medium: [1000, 1300, 1700]
+          large: [900, 1200, 1600]
+          xlarge: [800, 1100, 1500]
+        isole:
+          small: [1150, 1450, 1900]
+          medium: [1050, 1350, 1800]
+          large: [950, 1250, 1700]
+          xlarge: [850, 1150, 1600]
+    unit: EUR/kWp
+    headline: bands_eur_per_kwp.centro.medium
+    source: >-
+      Calibration against 10 real Italian quotes:
+      docs/business/benchmark-calibration-memo-2026-10-01.md and
+      agent/docs/quote-eval/eval-results/calibration-2026-10-01-stacked-bands.json
+    verified_on: 2026-10-01
+    owner: domenicodigangi
+    review_every: 180d
+
+  - id: battery_cost_bands
+    # (floor, central, ceiling) EUR/kWh: small < 5 kWh, medium 5-10, large > 10.
+    value:
+      small: [600, 750, 1000]
+      medium: [500, 700, 950]
+      large: [450, 650, 900]
+    unit: EUR/kWh
+    headline: medium
+    source: >-
+      Calibration against 10 real Italian quotes:
+      docs/business/benchmark-calibration-memo-2026-10-01.md and
+      agent/docs/quote-eval/eval-results/calibration-2026-10-01-stacked-bands.json
+    verified_on: 2026-10-01
+    owner: domenicodigangi
+    review_every: 180d
+
+  - id: arera_typical_bill
+    # The vulnerable typical customer (2,000 kWh/yr, 3 kW, resident) over 2026.
+    # Fixed charges: transport and meter plus retail per-point and per-kW quotas
+    # (~EUR 140/yr) plus 10% VAT; system charges carry no fixed part for residents.
+    value:
+      annual_spend_eur: 665.38
+      annual_kwh: 2000
+      fixed_charges_eur_yr: 155.0
+    unit: EUR
+    headline: annual_spend_eur
+    source: ARERA press release, 29 September 2026 (typical vulnerable customer, 2026)
+    verified_on: 2026-10-28
+    owner: domenicodigangi
+    review_every: 90d
+    rule_ends_on: 2026-12-31
+
+  - id: electricity_price_components
+    # EUR/kWh before VAT; the base year of the 20-year price projection.
+    value:
+      wholesale_eur_kwh: 0.137
+      network_eur_kwh: 0.062
+      system_charges_eur_kwh: 0.030
+      taxes_eur_kwh: 0.028
+      retail_margin_eur_kwh: 0.022
+    unit: EUR/kWh
+    headline: wholesale_eur_kwh
+    source: ARERA Q1 2026 components, domestic resident (docs/decisions.md DEC-022)
+    verified_on: 2026-03-22
+    owner: domenicodigangi
+    review_every: 365d
+
+  - id: export_capture_factor
+    # Solar-weighted zonal price over the engine's wholesale component: GME CNOR
+    # day-ahead 2025 mean EUR 116.8/MWh, weighted by the Pisa PV profile EUR 98.9/MWh.
+    value: 0.72
+    unit: share
+    source: GME day-ahead hourly prices, Centro-Nord zone, 2025 (docs/engine-changelog.md 1.0.0)
+    verified_on: 2026-10-28
+    owner: domenicodigangi
+    review_every: 365d
+
+  - id: rid_minimum_price
+    value: 0.0475
+    unit: EUR/kWh
+    source: GSE Ritiro Dedicato, prezzo minimo garantito 2026 (docs/decisions.md DEC-022)
+    verified_on: 2026-03-22
+    owner: domenicodigangi
+    review_every: 365d
+    rule_ends_on: 2026-12-31
+
+  - id: detrazione
+    # Art. 16-bis TUIR as set by the 2025 and 2026 budget laws. Work paid up to
+    # and including `higher_rates_until` gets the higher rates; later payments the
+    # lower ones. 10 equal yearly instalments, spend cap per housing unit.
+    value:
+      higher_rates_until: 2026-12-31
+      main_home_higher: 0.50
+      other_homes_higher: 0.36
+      main_home_lower: 0.36
+      other_homes_lower: 0.30
+      spend_cap_eur: 96000
+      years: 10
+    unit: share
+    headline: main_home_higher
+    source: Art. 16-bis TUIR; Legge di Bilancio 2025 (L. 207/2024) and Legge di Bilancio 2026
+    verified_on: 2026-11-01
+    owner: domenicodigangi
+    review_every: 90d
+    rule_ends_on: 2026-12-31

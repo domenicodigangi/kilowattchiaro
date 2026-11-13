@@ -153,6 +153,12 @@ class HourlySelfConsumptionResult(BaseModel):
     grid_import_kw: list[float] = Field(description="8760 hourly grid import values in kW")
     grid_export_kw: list[float] = Field(description="8760 hourly grid export values in kW")
     battery_state_kwh: list[float] | None = Field(default=None, description="8760 hourly battery state in kWh (None if no battery)")
+    battery_initial_soc_kwh: float | None = Field(
+        default=None, description="State of charge at the start of the year (cyclic: equals the end)"
+    )
+    annual_battery_standby_kwh: float = Field(
+        default=0.0, description="BMS and inverter idle draw over the year"
+    )
     monthly_summary: list[dict] = Field(description="12-element list with per-month totals")
     annual_self_consumption_kwh: float
     annual_grid_import_kwh: float

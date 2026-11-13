@@ -333,3 +333,35 @@ def get_archetype(archetype_id: str) -> LoadArchetype | None:
 def list_archetypes() -> list[LoadArchetype]:
     """Return all available archetypes."""
     return ARCHETYPES
+
+
+def _build_average_household() -> LoadArchetype:
+    """Equal-weight mean of the seven archetypes, used when the F1/F2/F3 split is unknown.
+
+    Without a split from a bill, picking one archetype by annual kWh pins every
+    household of a given size to one lifestyle (4,000 kWh was always ``ac_heavy``).
+    The mean shape makes no lifestyle claim the input cannot support.
+    """
+    profile = [
+        sum(values) / len(ARCHETYPES)
+        for values in zip(*(a.normalized_profile for a in ARCHETYPES))
+    ]
+    f1, f2, f3 = _compute_band_fractions(profile)
+    return LoadArchetype(
+        id="average_household",
+        label="Average household",
+        description="Mean of the seven archetypes; used when the F1/F2/F3 split is unknown",
+        annual_kwh_range=(
+            min(a.annual_kwh_range[0] for a in ARCHETYPES),
+            max(a.annual_kwh_range[1] for a in ARCHETYPES),
+        ),
+        typical_potenza_kw=3.0,
+        f1_fraction=f1,
+        f2_fraction=f2,
+        f3_fraction=f3,
+        normalized_profile=profile,
+    )
+
+
+# Not in ARCHETYPES: it is never chosen by band matching, only when the split is unknown.
+AVERAGE_HOUSEHOLD: LoadArchetype = _build_average_household()

@@ -18,6 +18,8 @@ Baseline: domestico residente, 2700 kWh/yr, 3 kW commitment.
 
 from pydantic import BaseModel, Field, computed_field, field_validator
 
+from ..assumptions import value as _assumption
+
 
 class ElectricityPriceComponents(BaseModel):
     """Italian electricity price decomposed into macro-components (EUR/kWh).
@@ -222,13 +224,11 @@ class PriceProjectionResult(BaseModel):
 # Values validated March 2026 against ARERA / GSE / D.Lgs. 43/2025 (DEC-022 in docs/decisions.md)
 # ---------------------------------------------------------------------------
 
-ITALIAN_DEFAULTS_2025 = ElectricityPriceComponents(
-    wholesale_eur_kwh=0.137,  # ~49% — PUN avg + dispatching (ARERA Q1 2026)
-    network_eur_kwh=0.062,  # ~22% — trasporto + gestione contatore (ARERA Q1 2026)
-    system_charges_eur_kwh=0.030,  # ~11% — ASOS + ARIM (ARERA Q1 2026)
-    taxes_eur_kwh=0.028,  # ~10% — accise (0.0227) + addizionali (0.0114), reduced Q1 2026
-    retail_margin_eur_kwh=0.022,  # ~8%  — supplier markup
-)
+# Values live in the assumptions register (app/assumptions.yaml,
+# ``electricity_price_components``): wholesale ~49% (PUN avg + dispatching), network
+# ~22% (trasporto + gestione contatore), system charges ~11% (ASOS + ARIM), taxes ~10%
+# (accise 0.0227 + addizionali 0.0114, reduced Q1 2026), retail margin ~8%.
+ITALIAN_DEFAULTS_2025 = ElectricityPriceComponents(**_assumption("electricity_price_components"))
 # total = 0.279 EUR/kWh pre-IVA
 
 

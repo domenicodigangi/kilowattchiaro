@@ -9,6 +9,14 @@ from __future__ import annotations
 from ._constants import _ANALYSIS_HORIZON_YEARS
 from .models import AnnualBreakdownEntry, AnnualCashFlowProjection, AnnualEnergyProfile
 
+# A mid-life battery replacement swaps the LFP cell pack, not the whole turnkey
+# install (inverter, BMS cabinet, wiring and labour stay): ~50-60% of the
+# year-0 turnkey price. Engine release v1.
+BATTERY_CELL_PACK_SHARE = 0.55
+# Service life of the replacement pack; whatever is left at year 20 is
+# credited pro rata as salvage value.
+BATTERY_LIFE_YEARS = 15
+
 
 def _panel_factor(year: int, panel_degradation_pct: float) -> float:
     return (1 - panel_degradation_pct) ** max(0, year - 1)
@@ -43,7 +51,21 @@ def _build_annual_cash_flow_projection(
     battery_fade_pct: float = 0.0,
     battery_replacement_eur: float = 0.0,
     battery_replacement_year: int | None = None,
+    cost_inflation: float = 0.0,
+    fixed_charges_eur: float = 0.0,
 ) -> AnnualCashFlowProjection:
+    """Year-by-year cash flows for years 1.._ANALYSIS_HORIZON_YEARS.
+
+    ``battery_replacement_eur`` is the replacement pack price (already the
+    cell-pack share of the turnkey cost); it is spread over the three years
+    around ``battery_replacement_year`` and the pack's unused life at the end
+    of the horizon is credited in the last year. Maintenance grows with
+    ``cost_inflation`` (CPI).
+
+    ``projected_retail_prices`` are variable (per-kWh) rates: they value the
+    avoided kWh. ``fixed_charges_eur`` is paid with or without PV; it only
+    enters the reported import cost, growing with the retail trajectory.
+    """
     annual_cash_flows: list[float] = []
     annual_import_costs: list[float] = []
     annual_export_revenues: list[float] = []
@@ -71,6 +93,12 @@ def _build_annual_cash_flow_projection(
     battery_spread_start = (battery_replacement_year - 1) if battery_replacement_year else 0
     battery_spread_end = (battery_replacement_year + 1) if battery_replacement_year else 0
     battery_annual_cost = battery_replacement_eur / 3 if battery_replacement_year else 0.0
+    battery_salvage = 0.0
+    if battery_profile is not None and battery_replacement_year:
+        years_used = _ANALYSIS_HORIZON_YEARS - battery_replacement_year
+        battery_salvage = battery_replacement_eur * max(
+            0.0, (BATTERY_LIFE_YEARS - years_used) / BATTERY_LIFE_YEARS
+        )
 
     for year in range(1, _ANALYSIS_HORIZON_YEARS + 1):
         panel_factor = _panel_factor(year, panel_degradation_pct)
@@ -97,11 +125,11 @@ def _build_annual_cash_flow_projection(
         )
         retail_price = projected_retail_prices[year]
         rid_price = max(rid_floor_price_eur_kwh, projected_wholesale_prices[year])
-        grid_cost = retail_price * grid_import_kwh
+        grid_cost = retail_price * grid_import_kwh + fixed_charges_eur * (
+            retail_price / projected_retail_prices[0]
+        )
         rid_revenue = rid_price * export_kwh
-        status_quo_cost = retail_price * status_quo_profile.grid_import_kwh
-
-        energy_savings = status_quo_cost - grid_cost
+        energy_savings = retail_price * (status_quo_profile.grid_import_kwh - grid_import_kwh)
         detrazione_yr = annual_detrazione if year <= detrazione_years else 0.0
         replacement = 0.0
         if inverter_spread_start <= year <= inverter_spread_end:
@@ -112,8 +140,11 @@ def _build_annual_cash_flow_projection(
             and battery_spread_start <= year <= battery_spread_end
         ):
             replacement += battery_annual_cost
+        if year == _ANALYSIS_HORIZON_YEARS:
+            replacement -= battery_salvage
 
-        cash_flow = energy_savings + rid_revenue - annual_maintenance_eur + detrazione_yr - replacement
+        maintenance = annual_maintenance_eur * (1 + cost_inflation) ** (year - 1)
+        cash_flow = energy_savings + rid_revenue - maintenance + detrazione_yr - replacement
 
         annual_cash_flows.append(round(cash_flow, 2))
         annual_import_costs.append(round(grid_cost, 2))
@@ -123,7 +154,7 @@ def _build_annual_cash_flow_projection(
             energy_savings_eur=round(energy_savings, 2),
             rid_revenue_eur=round(rid_revenue, 2),
             detrazione_eur=round(detrazione_yr, 2),
-            maintenance_eur=round(-annual_maintenance_eur, 2),
+            maintenance_eur=round(-maintenance, 2),
             replacement_eur=round(-replacement, 2),
             total_eur=round(cash_flow, 2),
         ))
