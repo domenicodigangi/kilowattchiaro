@@ -62,7 +62,7 @@ wheels = [
 
 [[package]]
 name = "kilowattchiaro-engine"
-version = "1.4.0"
+version = "1.4.0.post1"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic", extra = ["email"] },
