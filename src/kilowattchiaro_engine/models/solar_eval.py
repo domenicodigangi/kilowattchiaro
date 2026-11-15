@@ -306,6 +306,32 @@ class ScenarioResult(BaseModel):
     )
 
 
+# Closed vocabulary of fallback codes (ticket 316); app/engine/fallbacks.py
+# documents each one and keeps the set in step with this Literal.
+FallbackCode = Literal[
+    "sc_ratio_no_tmy",
+    "sc_ratio_hourly_failed",
+    "roof_default_south30",
+    "tariff_all_in_default",
+    "band_split_default",
+    "consumption_typical",
+    "detrazione_date_assumed",
+    "cost_market_band",
+    "imagery_not_high",
+    "production_range_unavailable",
+]
+
+_FALLBACK_CODES_DESCRIPTION = (
+    "Which path and which defaults this result used, sorted. Path codes "
+    "(sc_ratio_no_tmy, sc_ratio_hourly_failed, roof_default_south30) mean the "
+    "engine did not run its full model; the others name an input the household "
+    "did not give. Empty when nothing was assumed."
+)
+_FULL_FIDELITY_DESCRIPTION = (
+    "True when no path code fired: hourly self-consumption on a known roof orientation"
+)
+
+
 class SolarEvalResult(BaseModel):
     """Full response from solar evaluation endpoint."""
 
@@ -316,6 +342,10 @@ class SolarEvalResult(BaseModel):
     engine_version: str | None = Field(
         default=None, description="Version of the engine that computed these figures"
     )
+    fallback_codes: list[FallbackCode] = Field(
+        default_factory=list, description=_FALLBACK_CODES_DESCRIPTION
+    )
+    full_fidelity: bool | None = Field(default=None, description=_FULL_FIDELITY_DESCRIPTION)
     assumptions: dict = Field(
         default_factory=dict,
         description="Key assumptions used in calculation",
@@ -407,6 +437,10 @@ class SolarRecommendationResult(BaseModel):
     max_feasible_kwp: float = Field(gt=0)
     estimated_yield_kwh_per_kwp: float = Field(ge=0)
     candidate_count: int = Field(ge=1)
+    fallback_codes: list[FallbackCode] = Field(
+        default_factory=list, description=_FALLBACK_CODES_DESCRIPTION
+    )
+    full_fidelity: bool | None = Field(default=None, description=_FULL_FIDELITY_DESCRIPTION)
     assumptions: dict = Field(default_factory=dict)
 
 
@@ -485,6 +519,17 @@ class PredictedMetrics(BaseModel):
     irr_percent: float | None
     annual_savings_eur: float
     investment_eur: float
+    horizon_years: int = Field(
+        default=20, ge=0, le=20,
+        description="Years the actual outcome covers; the horizon metrics below use the same",
+    )
+    npv_horizon_eur: float | None = Field(
+        default=None,
+        description="Predicted NPV over horizon_years, compared like with like with the actual NPV",
+    )
+    irr_horizon_percent: float | None = Field(
+        default=None, description="Predicted IRR over horizon_years"
+    )
 
 
 class ActualMetrics(BaseModel):
@@ -530,6 +575,12 @@ class DecisionPointValidation(BaseModel):
     years_elapsed: int
     predicted_npv: float
     actual_npv: float
+    predicted_npv_horizon: float | None = Field(
+        default=None, description="Predicted NPV over the years elapsed (like with like)"
+    )
+    predicted_irr_horizon: float | None = Field(
+        default=None, description="Predicted IRR over the years elapsed"
+    )
     npv_error_eur: float
     npv_error_pct: float | None
     predicted_payback: float | None

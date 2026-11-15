@@ -5,6 +5,90 @@ package version follows the engine version (`ENGINE_VERSION`), which every
 evaluation result carries as `engine_version`; a `.postN` release republishes
 an engine whose code changed without moving any number.
 
+## 1.4.0 — 2026-11-12
+
+`/preventivo` review fixes on 1.3.0 (Wayfinder ticket 317). No `/solar` figure moves and
+no cost band or tier rule changes.
+
+- **No price verdict on a mixed bundle.** When the quote's total also pays for
+  substantial non-solar products or work (`price_scope` `mixed_bundle`, e.g. a heat
+  pump), `cost_verdict` and `cost_delta_percent` are null, and the battery price, the
+  payback and the re-evaluated scenarios are withheld. This is the rule the quote agent
+  already applied; the engine now applies it whenever it receives `price_scope`, which the
+  agent, the golden harness and the monthly accuracy report send. Hold-out quote #14
+  (6 kWp + 10 kWh + a heat pump, EUR 21,000) was `overpriced` on the raw engine and is now
+  withheld. Known gap: the uploaded-quote API (`/api/installer-quotes`: compare, compare
+  multiple and the PDF report) does not receive `price_scope` yet, because the backend
+  parser does not classify it and it is not stored with an uploaded quote, so that path
+  still issues a verdict on a mixed bundle. No frontend calls it today; the PDF can show
+  "Prezzo non valutato" only once that path carries the scope (follow-up).
+- **Size check ranks 90% and 80% of the quote too.** The quote is "oversized" only when
+  the best of the ranked sizes (the quoted size, 90/80% of it, and 70/55/40/25% of it) is
+  at or below 70% of the quote, so a size within 30% that /solar's ranking prefers keeps
+  the quote "appropriate". Cost: in 1.3.0 the grid cut the added time per quote check from
+  5.8 s to 0.6 s (6 kWp + 10 kWh) and from 11.0 s to 0.8 s (9 kWp + 20 kWh). The two extra
+  sizes take the size check from 0.18 s to 0.23 s (6 kWp + 10 kWh) and from 0.17 s to
+  0.27 s (9 kWp + 20 kWh), measured on the recorded PVGIS responses on a different machine
+  from the 1.3.0 figures: about +30% and +60% of the check, so roughly 0.8 s and 1.3 s on
+  the 1.3.0 scale. Calibration bundles stay 0/8 oversized.
+- **`our_recommended_kwp` only with "oversized".** It is the best ranked size when the
+  quote is oversized and null otherwise; with an "appropriate" quote it only repeated the
+  quote's own size, and the agent report showed it as an "independent estimate".
+- **Monthly accuracy report: the full registered hold-out bar.** Now that the engine can
+  withhold a verdict, `holdout_cost_verdict_acceptable_share` counts issued verdicts only
+  and a third published metric, `holdout_withheld_share` (<= 20%), is added. Both follow
+  the bar pre-registered in Wayfinder ticket 317 (wayfinder commit `b490e56`) before the
+  hold-out was scored: >= 80% of issued verdicts acceptable, 0 false "caro", <= 20%
+  withheld. This completes the registered bar; no threshold changes, and the
+  registration date stays 2026-11-12. Hold-out 1 on engine 1.4.0: 15/17 issued verdicts
+  acceptable, 0 false "caro", 1/18 withheld.
+
+## 1.3.0 — 2026-11-12
+
+`/preventivo` flags that carried no information (Wayfinder ticket 317). No `/solar`
+figure and no quote price verdict moves; three quote outputs change:
+
+- **Overall score retired** until it discriminates. It was "concerning" on 10 of 10
+  calibration quotes. `overall_score` is now always null (kept in the response for API
+  stability), the summary no longer ends with an overall judgement, the PDF report's
+  "NN/100" box now shows the price verdict, and the agent's 0-100 projection is null.
+- **Size flag on /solar's own sizing rule.** The quote is "oversized" only when /solar's
+  ranking key ("Proponi la configurazione migliore": best 10-year return, market-band
+  price) prefers a size at or below 70% of the quote to the quoted size. To keep the check
+  fast it ranks five candidates at most: the quoted size and 70/55/40/25% of it (rounded
+  down to 0.5 kWp, at least 1 kWp), each with the quote's own battery. The full 0.5 kWp
+  ranking added 5.8 s (6 kWp + 10 kWh) and 11.0 s (9 kWp + 20 kWh) to each quote check;
+  the grid adds 0.6 s and 0.8 s. `our_recommended_kwp` is the winning size (null when the
+  check could not run). "Undersized" is gone: an upload gives no roof,
+  and without one /solar's ranking always prefers a bigger system. With today's economics
+  the flag will rarely fire. Before: 1 kWp per 1,000 kWh of consumption flagged 7 of the
+  8 calibration bundles "oversized"; after: 0 of 8.
+- **Warranty flags only on a stated short warranty.** `short_warranty_panels` (< 10 years),
+  `short_warranty_inverter` (< 5) and `short_warranty_battery` (< 5, battery quoted) fire
+  only when the quote states the years. A warranty the quote leaves out is an omission the
+  agent asks about, not a red flag. The codes `missing_warranty_panels` and
+  `no_battery_warranty` are gone. Before: each calibration quote carried 2-3 warranty
+  warnings from silence; after: none (no calibration quote states a warranty).
+
+## 1.2.0 — 2026-11-12
+
+Fallback codes in every result (Wayfinder ticket 316). Each `/solar` evaluation and
+size recommendation now says which path and which defaults it used:
+
+- `fallback_codes`: sorted codes from a closed list (`backend/app/engine/fallbacks.py`,
+  documented in `docs/methodology.md` §13). Path codes: `sc_ratio_no_tmy` and
+  `sc_ratio_hourly_failed` (the default 30/70 self-consumption ratio instead of the
+  hourly match), `roof_default_south30` (no known roof orientation). Input defaults:
+  `tariff_all_in_default`, `band_split_default`, `consumption_typical`,
+  `detrazione_date_assumed`, `cost_market_band`, `imagery_not_high`,
+  `production_range_unavailable`.
+- `full_fidelity`: true when no path code fired. The share of evaluations with
+  `full_fidelity` is the first reliability KPI; the server counts the codes anonymously
+  per day (no cookie, no id, no stored IP).
+
+No figure moves: every golden scenario keeps its numbers; the snapshot only gains the
+two fields on every `/solar` case.
+
 ## 1.1.1 — 2026-11-12
 
 A failed PVGIS call on `/preventivo` is "could not check", not a flag (Wayfinder ticket

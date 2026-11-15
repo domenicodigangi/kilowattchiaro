@@ -18,8 +18,10 @@ from .models.solar_eval import (
 )
 from .historical_backtest import run_standard_backtest
 
-# Decision points with fewer than this many years elapsed are excluded
-# from aggregate metrics (apples-to-oranges: predicted 20yr vs partial actual).
+# Decision points with fewer than this many years elapsed are excluded from
+# aggregate metrics: a short horizon is mostly the upfront investment, so its
+# relative error says little. NPV and IRR errors compare the same years on both
+# sides (ticket 316); the profitability call compares 20 years on both sides.
 _MIN_YEARS_FOR_AGGREGATES = 5
 _WELL_MODELED_ERROR_THRESHOLD_PCT = 20.0
 
@@ -106,10 +108,9 @@ def run_validation_suite(
 
         # IRR error (percentage points)
         irr_error: float | None = None
-        if result.predicted.irr_percent is not None and result.actual.irr_percent is not None:
-            irr_error = round(
-                result.predicted.irr_percent - result.actual.irr_percent, 2,
-            )
+        predicted_irr_horizon = result.predicted.irr_horizon_percent
+        if predicted_irr_horizon is not None and result.actual.irr_percent is not None:
+            irr_error = round(predicted_irr_horizon - result.actual.irr_percent, 2)
 
         decision_points.append(DecisionPointValidation(
             decision_date=result.decision_date,
@@ -118,6 +119,8 @@ def run_validation_suite(
             years_elapsed=years,
             predicted_npv=predicted_npv,
             actual_npv=actual_npv,
+            predicted_npv_horizon=result.predicted.npv_horizon_eur,
+            predicted_irr_horizon=predicted_irr_horizon,
             projected_npv_20yr=projected_npv,
             npv_error_eur=result.npv_prediction_error_eur,
             npv_error_pct=result.npv_prediction_error_pct,

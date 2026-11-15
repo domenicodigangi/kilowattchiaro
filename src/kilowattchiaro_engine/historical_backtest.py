@@ -27,7 +27,7 @@ from .incentive_regimes import (
     get_pv_cost_at_year,
     get_regime_at_date,
 )
-from .solar_eval import _estimate_irr, _npv_20yr, _payback_years
+from .solar_eval import _estimate_irr, _legacy_cash_flows, _npv_20yr, _payback_years
 
 # Self-consumption ratios (same as solar_eval.py defaults)
 _SC_RATIO = 0.30
@@ -103,6 +103,24 @@ def _export_price(mechanism: ExportMechanism) -> float:
 # ---------------------------------------------------------------------------
 
 
+def _years_elapsed(decision_date: date) -> int:
+    """Years of actual outcome after the decision, capped at the 20-year analysis."""
+    return max(0, min(20, _PRESENT_YEAR - decision_date.year))
+
+
+def _horizon_metrics(
+    investment: float, cash_flows: list[float], horizon_years: int, discount_rate: float,
+) -> tuple[float, float | None]:
+    """NPV and IRR of the predicted cash flows over the first ``horizon_years`` only.
+
+    Ticket 316: the actual NPV covers the years elapsed, so the prediction it is
+    compared with must cover the same years (like with like), not 20.
+    """
+    flows = cash_flows[:horizon_years]
+    npv = -investment + sum(cf / ((1 + discount_rate) ** i) for i, cf in enumerate(flows, 1))
+    return round(npv, 2), _irr_from_cashflows(investment, flows)
+
+
 def _compute_predicted_metrics(
     knowledge: KnowledgeAtTime,
     annual_production_kwh: float,
@@ -110,8 +128,13 @@ def _compute_predicted_metrics(
     desired_kwp: float,
     include_battery: bool,
     battery_kwh: float,
+    horizon_years: int = 20,
 ) -> PredictedMetrics:
-    """Compute what a decision-maker would have predicted at decision_date."""
+    """Compute what a decision-maker would have predicted at decision_date.
+
+    ``horizon_years`` sets the like-with-like metrics (``npv_horizon_eur``,
+    ``irr_horizon_percent``) compared with the actual outcome.
+    """
     regime = knowledge.regime
     elec_price = knowledge.electricity_price_eur_kwh
     sc_ratio = _SC_RATIO_BATTERY if include_battery else _SC_RATIO
@@ -135,13 +158,13 @@ def _compute_predicted_metrics(
     if regime is not None and regime.incentive_type == IncentiveType.FEED_IN_TARIFF:
         return _predict_feed_in_tariff(
             regime, knowledge, total_investment, annual_production_kwh,
-            self_consumed, exported, elec_price, inflation, discount_rate,
+            self_consumed, exported, elec_price, inflation, discount_rate, horizon_years,
         )
 
     # Tax deduction path (Detrazione 50% or Superbonus 110%)
     return _predict_tax_deduction(
         regime, knowledge, total_investment, self_consumed, exported,
-        elec_price, inflation, discount_rate,
+        elec_price, inflation, discount_rate, horizon_years,
     )
 
 
@@ -155,6 +178,7 @@ def _predict_feed_in_tariff(
     elec_price: float,
     inflation: float,
     discount_rate: float,
+    horizon_years: int = 20,
 ) -> PredictedMetrics:
     """Predict metrics under a Conto Energia feed-in tariff regime."""
     if regime.rate_eur_kwh is None:
@@ -192,6 +216,10 @@ def _predict_feed_in_tariff(
     npv = _npv_fit(investment, sc_savings, fixed_revenue, discount_rate, inflation, years=20)
     payback = _payback_fit(investment, sc_savings, fixed_revenue, inflation)
     irr = _irr_fit(investment, sc_savings, fixed_revenue, inflation, years=20)
+    cash_flows = [sc_savings * (1 + inflation) ** y + fixed_revenue for y in range(1, 21)]
+    npv_horizon, irr_horizon = _horizon_metrics(
+        investment, cash_flows, horizon_years, discount_rate
+    )
 
     return PredictedMetrics(
         npv_20yr_eur=npv,
@@ -199,6 +227,9 @@ def _predict_feed_in_tariff(
         irr_percent=irr,
         annual_savings_eur=round(annual_cf, 2),
         investment_eur=round(investment, 2),
+        horizon_years=horizon_years,
+        npv_horizon_eur=npv_horizon,
+        irr_horizon_percent=irr_horizon,
     )
 
 
@@ -211,6 +242,7 @@ def _predict_tax_deduction(
     elec_price: float,
     inflation: float,
     discount_rate: float,
+    horizon_years: int = 20,
 ) -> PredictedMetrics:
     """Predict metrics under tax deduction (Detrazione 50% or Superbonus)."""
     # Self-consumption savings
@@ -250,6 +282,14 @@ def _predict_tax_deduction(
         export_revenue, detrazione_annual, deduction_years, inflation=inflation,
     )
     annual_savings = round(sc_savings + export_revenue + detrazione_annual, 2)
+    # The same series _npv_20yr discounts, cut to the horizon
+    cash_flows = _legacy_cash_flows(
+        annual_cost_sq_effective, annual_cost_solar_effective, export_revenue,
+        detrazione_annual, deduction_years, inflation, years=20,
+    )
+    npv_horizon, irr_horizon = _horizon_metrics(
+        investment, cash_flows, horizon_years, discount_rate
+    )
 
     return PredictedMetrics(
         npv_20yr_eur=npv,
@@ -257,6 +297,9 @@ def _predict_tax_deduction(
         irr_percent=irr,
         annual_savings_eur=annual_savings,
         investment_eur=round(investment, 2),
+        horizon_years=horizon_years,
+        npv_horizon_eur=npv_horizon,
+        irr_horizon_percent=irr_horizon,
     )
 
 
@@ -560,9 +603,8 @@ def _compute_actual_metrics(
     include_battery: bool,
 ) -> ActualMetrics:
     """Compute actual NPV, payback, IRR, and avg savings from real cash flow history."""
-    decision_year = knowledge.decision_date.year
     discount_rate = knowledge.discount_rate
-    years_elapsed = min(20, _PRESENT_YEAR - decision_year)
+    years_elapsed = _years_elapsed(knowledge.decision_date)
 
     cash_flows = _build_actual_cashflows(
         knowledge, investment, annual_production_kwh,
@@ -645,6 +687,7 @@ def run_historical_backtest(
     predicted = _compute_predicted_metrics(
         knowledge, annual_production, consumption.annual_kwh,
         desired_kwp, include_battery, battery_kwh,
+        horizon_years=_years_elapsed(decision_date),
     )
 
     actual = _compute_actual_metrics(
@@ -652,11 +695,12 @@ def run_historical_backtest(
         consumption.annual_kwh, desired_kwp, include_battery,
     )
 
-    # Prediction error
-    npv_error = actual.npv_to_date_eur - predicted.npv_20yr_eur
+    # Prediction error over the same years on both sides (ticket 316)
+    predicted_npv = predicted.npv_horizon_eur
+    npv_error = actual.npv_to_date_eur - predicted_npv
     npv_error_pct = (
-        round(npv_error / abs(predicted.npv_20yr_eur) * 100, 1)
-        if predicted.npv_20yr_eur != 0
+        round(npv_error / abs(predicted_npv) * 100, 1)
+        if predicted_npv != 0
         else None
     )
 

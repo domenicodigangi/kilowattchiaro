@@ -5,11 +5,12 @@ for inferring hourly consumption from bill-level F1/F2/F3 data.
 """
 
 from .archetypes import ARCHETYPES, LoadArchetype, get_archetype, list_archetypes
-from .infer import infer_hourly_load
+from .infer import band_split_known, infer_hourly_load
 
 __all__ = [
     "ARCHETYPES",
     "LoadArchetype",
+    "band_split_known",
     "get_archetype",
     "infer_hourly_load",
     "list_archetypes",

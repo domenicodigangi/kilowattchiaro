@@ -207,3 +207,26 @@ class TestEdgeCases:
             rome_production_6kwp, scenario_label="Rome 6kWp 3000kWh",
         )
         assert report.scenario_label == "Rome 6kWp 3000kWh"
+
+
+class TestFixedHorizonValidation:
+    """Ticket 316: per-point NPV and IRR errors compare the same years."""
+
+    def test_npv_error_is_against_the_prediction_over_the_years_elapsed(
+        self, rome_production_6kwp, default_consumption
+    ):
+        report = run_validation_suite(rome_production_6kwp, default_consumption)
+        for dp in report.decision_points:
+            assert dp.predicted_npv_horizon is not None
+            assert dp.npv_error_eur == pytest.approx(dp.actual_npv - dp.predicted_npv_horizon, abs=0.1)
+
+    def test_irr_error_is_against_the_prediction_over_the_years_elapsed(
+        self, rome_production_6kwp, default_consumption
+    ):
+        report = run_validation_suite(rome_production_6kwp, default_consumption)
+        for dp in report.decision_points:
+            if dp.irr_error_pct_points is not None:
+                assert dp.predicted_irr_horizon is not None
+                assert dp.irr_error_pct_points == pytest.approx(
+                    dp.predicted_irr_horizon - dp.actual_irr, abs=0.01
+                )

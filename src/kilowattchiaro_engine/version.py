@@ -7,4 +7,4 @@ shows it from ``frontend/src/data/assumptions.json``: rerun
 ``scripts/export_assumptions.py`` after a bump (a test fails until you do).
 """
 
-ENGINE_VERSION = "1.1.1"
+ENGINE_VERSION = "1.4.0"

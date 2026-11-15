@@ -309,12 +309,65 @@ class TestSingleBacktest:
         assert result.predicted.npv_20yr_eur > 0
 
     def test_prediction_error_sign(self, rome_production_6kwp, default_consumption):
-        """Prediction error = actual - predicted. Can be positive or negative."""
+        """Prediction error = actual - predicted over the same years. Either sign."""
         result = run_historical_backtest(
             date(2015, 7, 1), rome_production_6kwp, default_consumption, 6.0,
         )
-        expected_error = result.actual.npv_to_date_eur - result.predicted.npv_20yr_eur
+        expected_error = result.actual.npv_to_date_eur - result.predicted.npv_horizon_eur
         assert abs(result.npv_prediction_error_eur - expected_error) < 0.1
+
+
+class TestFixedHorizon:
+    """Ticket 316: compare like with like. The actual NPV covers the years elapsed
+    since the decision, so the error is measured against the predicted NPV over
+    those same years, not the predicted 20-year NPV."""
+
+    @pytest.mark.parametrize("decision", [date(2008, 7, 1), date(2015, 7, 1), date(2020, 10, 1)])
+    def test_predicted_horizon_is_the_years_elapsed(
+        self, decision, rome_production_6kwp, default_consumption
+    ):
+        result = run_historical_backtest(decision, rome_production_6kwp, default_consumption, 6.0)
+        assert result.predicted.horizon_years == result.actual.years_elapsed
+
+    def test_error_is_not_against_the_20_year_prediction(
+        self, rome_production_6kwp, default_consumption
+    ):
+        result = run_historical_backtest(
+            date(2015, 7, 1), rome_production_6kwp, default_consumption, 6.0,
+        )
+        # 10 years elapsed: the 10-year prediction is well below the 20-year one
+        assert result.actual.years_elapsed == 10
+        assert result.predicted.npv_horizon_eur < result.predicted.npv_20yr_eur
+        assert result.npv_prediction_error_pct == pytest.approx(
+            100 * result.npv_prediction_error_eur / abs(result.predicted.npv_horizon_eur), abs=0.1
+        )
+
+    @pytest.mark.parametrize("decision", [date(2012, 1, 1), date(2015, 7, 1)])
+    def test_a_20_year_horizon_reproduces_the_20_year_prediction(
+        self, decision, rome_production_6kwp, default_consumption
+    ):
+        from kilowattchiaro_engine.historical_backtest import (
+            _build_knowledge_at_time,
+            _compute_predicted_metrics,
+        )
+
+        knowledge = _build_knowledge_at_time(decision)
+        annual = sum(m.e_m for m in rome_production_6kwp)
+        predicted = _compute_predicted_metrics(
+            knowledge, annual, default_consumption.annual_kwh, 6.0, False, 10.0, horizon_years=20,
+        )
+        assert predicted.npv_horizon_eur == pytest.approx(predicted.npv_20yr_eur, abs=1.0)
+        assert predicted.irr_horizon_percent == pytest.approx(predicted.irr_percent, abs=0.2)
+
+    def test_no_elapsed_year_predicts_minus_the_investment(
+        self, rome_production_6kwp, default_consumption
+    ):
+        result = run_historical_backtest(
+            date(2025, 1, 1), rome_production_6kwp, default_consumption, 6.0,
+        )
+        assert result.predicted.horizon_years == 0
+        assert result.predicted.npv_horizon_eur == pytest.approx(-result.investment_eur)
+        assert result.npv_prediction_error_eur == pytest.approx(0.0, abs=0.01)
 
     def test_recent_date_short_actual_period(
         self, rome_production_6kwp, default_consumption

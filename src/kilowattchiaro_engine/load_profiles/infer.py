@@ -145,6 +145,13 @@ def _cap_and_redistribute(values: list[float], cap: float) -> float:
     return moved
 
 
+def band_split_known(consumption: ConsumptionProfile) -> bool:
+    """Whether the F1/F2/F3 split shapes the load, or the average household is used."""
+    if consumption.band_split_known is not None:
+        return consumption.band_split_known
+    return _detect_input_mode(consumption) != _InputMode.ANNUAL_ONLY
+
+
 def infer_hourly_load(
     consumption: ConsumptionProfile,
     potenza_impegnata: float = 3.0,
@@ -163,12 +170,7 @@ def infer_hourly_load(
     Invariant: ``sum(values) == consumption.annual_kwh``.
     """
     mode = _detect_input_mode(consumption)
-    split_known = (
-        consumption.band_split_known
-        if consumption.band_split_known is not None
-        else mode != _InputMode.ANNUAL_ONLY
-    )
-    if not split_known:
+    if not band_split_known(consumption):
         mode = _InputMode.ANNUAL_ONLY
     total_kwh = consumption.annual_kwh
 

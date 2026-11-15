@@ -39,9 +39,10 @@ from ..models.solar_eval import (
     SensitivityCell,
     SolarEvalResult,
 )
+from .. import fallbacks
 from ..detrazione import DETRAZIONE_YEARS, detrazione_rate, detrazione_total_eur
 from ..hourly_match import match_hourly
-from ..load_profiles import infer_hourly_load
+from ..load_profiles import band_split_known, infer_hourly_load
 from ..price_projection import get_price_projection_scenario
 from ..pv_production import SegmentProduction, hourly_production_kw
 from ..quote.stacked import battery_band, investment_range, pv_band
@@ -394,6 +395,7 @@ def evaluate_solar(
 
     # === Phase 2 — Compute self-consumption (hourly path; monthly fallback) ===
     use_hourly = tmy_data is not None and tmy_data.has_components
+    codes: list[str] = [] if use_hourly else [fallbacks.SC_RATIO_NO_TMY]
     hourly_match_bat = None
     if use_hourly:
         try:
@@ -449,6 +451,7 @@ def evaluate_solar(
                 exc_info=True,
             )
             use_hourly = False
+            codes.append(fallbacks.SC_RATIO_HOURLY_FAILED)
 
     if not use_hourly:
         sc_ratio = settings.default_self_consumption_ratio
@@ -740,6 +743,20 @@ def evaluate_solar(
         "production_model": "tilted_plane_hourly" if use_hourly else "pvgis_monthly",
     }
 
+    # Which defaults the engine itself applied (ticket 316); the service adds the
+    # roof and input-source codes it alone can see.
+    if use_hourly and not band_split_known(consumption):
+        codes.append(fallbacks.BAND_SPLIT_DEFAULT)
+    if not consumption.annual_cost_eur:
+        codes.append(fallbacks.TARIFF_ALL_IN_DEFAULT)
+    if panel_cost_eur_per_kwp is None or (
+        include_battery and battery_cost_eur is None and battery_cost_eur_per_kwh is None
+    ):
+        codes.append(fallbacks.COST_MARKET_BAND)
+    if payment_date is None:
+        codes.append(fallbacks.DETRAZIONE_DATE_ASSUMED)
+    fallback_codes, full_fidelity = fallbacks.finalise(codes)
+
     # === Phase 8 — Return SolarEvalResult ===
     return SolarEvalResult(
         scenarios=scenarios,
@@ -747,5 +764,7 @@ def evaluate_solar(
         system_kwp=desired_kwp,
         location="",
         engine_version=ENGINE_VERSION,
+        fallback_codes=fallback_codes,
+        full_fidelity=full_fidelity,
         assumptions={k: v for k, v in assumptions.items() if v is not None},
     )

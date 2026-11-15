@@ -9,5 +9,5 @@ follows it.
 from .solar_eval import evaluate_solar
 from .version import ENGINE_VERSION
 
-__version__ = "1.1.1"
+__version__ = "1.4.0"
 __all__ = ["ENGINE_VERSION", "evaluate_solar", "__version__"]

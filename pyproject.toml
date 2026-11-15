@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kilowattchiaro-engine"
-version = "1.1.1"
+version = "1.4.0"
 description = "The deterministic solar-evaluation engine behind kilowattchiaro.it — NPV, IRR, payback, scenarios and historical backtests for Italian residential solar."
 readme = "README.md"
 requires-python = ">=3.11"

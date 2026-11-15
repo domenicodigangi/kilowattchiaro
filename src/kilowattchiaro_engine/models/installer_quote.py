@@ -23,6 +23,15 @@ class InstallerQuote(BaseModel):
     chiavi_in_mano: bool | None = Field(
         default=None, description="Whether the quote is turnkey (all-inclusive)"
     )
+    price_scope: Literal["pv_only", "pv_and_battery", "mixed_bundle", "unknown"] = Field(
+        default="unknown",
+        exclude=True,
+        description=(
+            "What the total pays for; mixed_bundle when it also covers substantial "
+            "non-solar products or work (no price verdict then). Set by the quote agent; "
+            "not persisted"
+        ),
+    )
     detrazione_percent: float | None = Field(
         default=None, description="Tax deduction percentage (typically 50)"
     )
